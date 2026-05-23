@@ -1,39 +1,31 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Send, Plus, Clock, Copy, ThumbsUp, ThumbsDown } from "lucide-react";
+import { Send, Sparkles, GitBranch, ShieldCheck, KeyRound, Copy, ThumbsUp, ThumbsDown } from "lucide-react";
 import "./styles.css";
 
 function App() {
-  const initialMessage = {
-    role: "assistant",
-    text: "Hi, I can help you understand EWT engineering standards, GitHub controls, CI/CD practices, IaC governance, and deployment rules.",
-    citations: []
-  };
-
-  const [messages, setMessages] = useState([initialMessage]);
+  const [messages, setMessages] = useState([]);
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
-  const [chatHistory, setChatHistory] = useState([]);
   const bottomRef = useRef(null);
+
+  const prompts = [
+    { icon: <GitBranch size={20} />, text: "What is the EWT single-main-branch standard?" },
+    { icon: <ShieldCheck size={20} />, text: "What are the branch protection requirements?" },
+    { icon: <KeyRound size={20} />, text: "How should secrets be managed in Terraform repositories?" }
+  ];
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  async function askQuestion() {
-    const trimmed = question.trim();
+  async function askQuestion(promptText) {
+    const trimmed = (promptText || question).trim();
     if (!trimmed || loading) return;
 
-    setMessages((prev) => [...prev, { role: "user", text: trimmed, citations: [] }]);
+    setMessages((prev) => [...prev, { role: "user", text: trimmed }]);
     setQuestion("");
     setLoading(true);
-
-    setChatHistory((prev) => {
-      const exists = prev.some((item) => item.question === trimmed);
-      if (exists) return prev;
-      return [{ question: trimmed, messages: [...messages, { role: "user", text: trimmed, citations: [] }] }, ...prev];
-    });
 
     try {
       const response = await fetch("/api/chat", {
@@ -44,29 +36,14 @@ function App() {
 
       const data = await response.json();
 
-      const assistantMessage = {
-        role: "assistant",
-        text: data.answer || "No response received.",
-        citations: data.citations || []
-      };
-
-      setMessages((prev) => [...prev, assistantMessage]);
-
-      setChatHistory((prev) =>
-        prev.map((item, index) =>
-          index === 0
-            ? { ...item, messages: [...item.messages, assistantMessage] }
-            : item
-        )
-      );
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", text: data.answer || "No response received." }
+      ]);
     } catch {
       setMessages((prev) => [
         ...prev,
-        {
-          role: "assistant",
-          text: "I could not reach the backend API. Please check the Container App revision and API link.",
-          citations: []
-        }
+        { role: "assistant", text: "I could not reach the backend API. Please check the Container App revision." }
       ]);
     } finally {
       setLoading(false);
@@ -80,93 +57,66 @@ function App() {
     }
   }
 
-  function startNewChat() {
-    setMessages([initialMessage]);
-    setQuestion("");
-  }
-
-  function openHistory(item) {
-    setMessages(item.messages);
-    setShowHistory(false);
-  }
-
   function copyText(text) {
     navigator.clipboard.writeText(text);
   }
 
+  const isLanding = messages.length === 0;
+
   return (
-    <div className="app">
-      {showHistory && (
-        <aside className="historyDrawer">
-          <div className="drawerHeader">
-            <h3>Chat history</h3>
-            <button onClick={() => setShowHistory(false)}>×</button>
-          </div>
-
-          {chatHistory.length === 0 ? (
-            <p className="emptyHistory">No chat history yet.</p>
-          ) : (
-            chatHistory.map((item, index) => (
-              <button key={index} className="historyItem" onClick={() => openHistory(item)}>
-                <Clock size={15} />
-                <span>{item.question}</span>
-              </button>
-            ))
-          )}
-        </aside>
-      )}
-
-      <main className="chatShell">
-        <header className="topbar">
-          <div className="leftActions">
-            <button className="iconBtn" onClick={() => setShowHistory(true)}>
-              <Clock size={18} />
-            </button>
-            <button className="newBtn" onClick={startNewChat}>
-              <Plus size={17} />
-              New chat
-            </button>
-          </div>
-
-          <div className="titleBlock">
-            <h1>Enterprise Engineering AI Assistant</h1>
-          </div>
-
-          <div></div>
-        </header>
-
-        <section className="conversation">
-          {messages.map((m, index) => (
-            <div key={index} className={`message ${m.role}`}>
-              <div className="avatar">{m.role === "assistant" ? "AI" : "You"}</div>
-
-              <div className="messageBody">
-                <div className="messageText">{m.text}</div>
-
-                {m.role === "assistant" && (
-                  <div className="messageActions">
-                    <button onClick={() => copyText(m.text)}><Copy size={14} /></button>
-                    <button><ThumbsUp size={14} /></button>
-                    <button><ThumbsDown size={14} /></button>
-                  </div>
-                )}
-              </div>
+    <main className="app">
+      <section className={isLanding ? "landing" : "chatMode"}>
+        {isLanding && (
+          <div className="hero">
+            <div className="assistantIcon">
+              <Sparkles size={34} />
             </div>
-          ))}
 
-          {loading && (
-            <div className="message assistant">
-              <div className="avatar">AI</div>
-              <div className="messageBody">
-                <div className="typing">
-                  <span></span><span></span><span></span>
+            <h1>Enterprise Engineering AI Assistant</h1>
+            <p>Ask questions about engineering standards, GitHub controls, CI/CD practices, IaC governance, and deployment rules.</p>
+
+            <div className="promptGrid">
+              {prompts.map((p, i) => (
+                <button key={i} className="promptCard" onClick={() => askQuestion(p.text)}>
+                  <div className="promptIcon">{p.icon}</div>
+                  <span>{p.text}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!isLanding && (
+          <div className="messages">
+            {messages.map((m, i) => (
+              <div key={i} className={`message ${m.role}`}>
+                <div className="avatar">{m.role === "assistant" ? "AI" : "You"}</div>
+                <div className="messageBody">
+                  <div className="messageText">{m.text}</div>
+
+                  {m.role === "assistant" && (
+                    <div className="messageActions">
+                      <button onClick={() => copyText(m.text)}><Copy size={14} /></button>
+                      <button><ThumbsUp size={14} /></button>
+                      <button><ThumbsDown size={14} /></button>
+                    </div>
+                  )}
                 </div>
               </div>
-            </div>
-          )}
+            ))}
 
-          <div ref={bottomRef} />
-        </section>
+            {loading && (
+              <div className="message assistant">
+                <div className="avatar">AI</div>
+                <div className="messageBody">
+                  <div className="typing"><span></span><span></span><span></span></div>
+                </div>
+              </div>
+            )}
+
+            <div ref={bottomRef} />
+          </div>
+        )}
 
         <div className="composerWrap">
           <div className="composer">
@@ -176,13 +126,14 @@ function App() {
               onKeyDown={handleKey}
               placeholder="Ask about engineering standards..."
             />
-            <button className="sendBtn" onClick={askQuestion} disabled={loading || !question.trim()}>
-              <Send size={18} />
+            <button className="sendBtn" onClick={() => askQuestion()} disabled={loading || !question.trim()}>
+              <Send size={24} />
             </button>
           </div>
+          <div className="hint">Press Enter to send · Shift + Enter for a new line</div>
         </div>
-      </main>
-    </div>
+      </section>
+    </main>
   );
 }
 
