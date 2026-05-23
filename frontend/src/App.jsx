@@ -8,6 +8,7 @@ function App() {
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
   const [chatHistory, setChatHistory] = useState([]);
+  const [activeChatId, setActiveChatId] = useState(null);
   const bottomRef = useRef(null);
 
   const prompts = [
@@ -25,7 +26,14 @@ function App() {
     if (!trimmed || loading) return;
 
     const userMessage = { role: "user", text: trimmed };
-    setMessages((prev) => [...prev, userMessage]);
+    const chatId = activeChatId || crypto.randomUUID();
+
+    if (!activeChatId) {
+      setActiveChatId(chatId);
+    }
+
+    const messagesWithUser = [...messages, userMessage];
+    setMessages(messagesWithUser);
     setQuestion("");
     setLoading(true);
 
@@ -37,27 +45,37 @@ function App() {
       });
 
       const data = await response.json();
+
       const assistantMessage = {
         role: "assistant",
         text: data.answer || "No response received."
       };
 
-      setMessages((prev) => {
-        const updated = [...prev, assistantMessage];
+      const finalMessages = [...messagesWithUser, assistantMessage];
+      setMessages(finalMessages);
 
-        setChatHistory((old) => {
-          const title = trimmed.length > 54 ? trimmed.slice(0, 54) + "..." : trimmed;
-          return [
-            {
-              title,
-              messages: updated,
-              time: "Just now"
-            },
-            ...old.filter((item) => item.title !== title)
-          ];
-        });
+      setChatHistory((old) => {
+        const existing = old.find((item) => item.id === chatId);
 
-        return updated;
+        if (existing) {
+          return old.map((item) =>
+            item.id === chatId
+              ? { ...item, messages: finalMessages, time: "Just now" }
+              : item
+          );
+        }
+
+        const title = trimmed.length > 54 ? trimmed.slice(0, 54) + "..." : trimmed;
+
+        return [
+          {
+            id: chatId,
+            title,
+            messages: finalMessages,
+            time: "Just now"
+          },
+          ...old
+        ];
       });
     } catch {
       setMessages((prev) => [
@@ -81,12 +99,14 @@ function App() {
   }
 
   function openHistory(item) {
+    setActiveChatId(item.id);
     setMessages(item.messages);
   }
 
   function newChat() {
     setMessages([]);
     setQuestion("");
+    setActiveChatId(null);
   }
 
   const isLanding = messages.length === 0;
@@ -103,8 +123,12 @@ function App() {
           {chatHistory.length === 0 ? (
             <p className="emptyHistory">Your recent chats will appear here.</p>
           ) : (
-            chatHistory.map((item, index) => (
-              <button key={index} className="historyCard" onClick={() => openHistory(item)}>
+            chatHistory.map((item) => (
+              <button
+                key={item.id}
+                className={`historyCard ${item.id === activeChatId ? "active" : ""}`}
+                onClick={() => openHistory(item)}
+              >
                 <MessageSquare size={17} />
                 <div>
                   <strong>{item.title}</strong>

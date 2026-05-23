@@ -411,3 +411,8 @@ textarea::placeholder {
     border-radius: 18px;
   }
 }
+
+.historyCard.active {
+  background: #eef4ff;
+  border: 1px solid #2563eb;
+}
