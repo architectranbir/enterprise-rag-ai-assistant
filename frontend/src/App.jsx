@@ -1,22 +1,20 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Send, FileText, Plus, Clock, Copy, ThumbsUp, ThumbsDown, PanelRight } from "lucide-react";
+import { Send, Plus, Clock, Copy, ThumbsUp, ThumbsDown } from "lucide-react";
 import "./styles.css";
 
 function App() {
-  const [messages, setMessages] = useState([
-    {
-      role: "assistant",
-      text: "Hi, I can help you understand EWT engineering standards, GitHub controls, CI/CD practices, IaC governance, and deployment rules.",
-      citations: []
-    }
-  ]);
+  const initialMessage = {
+    role: "assistant",
+    text: "Hi, I can help you understand EWT engineering standards, GitHub controls, CI/CD practices, IaC governance, and deployment rules.",
+    citations: []
+  };
 
+  const [messages, setMessages] = useState([initialMessage]);
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
-  const [activeSources, setActiveSources] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
-  const [showSources, setShowSources] = useState(true);
+  const [chatHistory, setChatHistory] = useState([]);
   const bottomRef = useRef(null);
 
   useEffect(() => {
@@ -31,6 +29,12 @@ function App() {
     setQuestion("");
     setLoading(true);
 
+    setChatHistory((prev) => {
+      const exists = prev.some((item) => item.question === trimmed);
+      if (exists) return prev;
+      return [{ question: trimmed, messages: [...messages, { role: "user", text: trimmed, citations: [] }] }, ...prev];
+    });
+
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
@@ -40,16 +44,21 @@ function App() {
 
       const data = await response.json();
 
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          text: data.answer || "No response received.",
-          citations: data.citations || []
-        }
-      ]);
+      const assistantMessage = {
+        role: "assistant",
+        text: data.answer || "No response received.",
+        citations: data.citations || []
+      };
 
-      setActiveSources(data.citations || []);
+      setMessages((prev) => [...prev, assistantMessage]);
+
+      setChatHistory((prev) =>
+        prev.map((item, index) =>
+          index === 0
+            ? { ...item, messages: [...item.messages, assistantMessage] }
+            : item
+        )
+      );
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -71,12 +80,22 @@ function App() {
     }
   }
 
+  function startNewChat() {
+    setMessages([initialMessage]);
+    setQuestion("");
+  }
+
+  function openHistory(item) {
+    setMessages(item.messages);
+    setShowHistory(false);
+  }
+
   function copyText(text) {
     navigator.clipboard.writeText(text);
   }
 
   return (
-    <div className={`app ${showSources ? "withSources" : ""}`}>
+    <div className="app">
       {showHistory && (
         <aside className="historyDrawer">
           <div className="drawerHeader">
@@ -84,18 +103,16 @@ function App() {
             <button onClick={() => setShowHistory(false)}>×</button>
           </div>
 
-          <div className="historyItem active">
-            <Clock size={15} />
-            Engineering standards Q&A
-          </div>
-          <div className="historyItem">
-            <Clock size={15} />
-            GitHub governance checks
-          </div>
-          <div className="historyItem">
-            <Clock size={15} />
-            Terraform repository standards
-          </div>
+          {chatHistory.length === 0 ? (
+            <p className="emptyHistory">No chat history yet.</p>
+          ) : (
+            chatHistory.map((item, index) => (
+              <button key={index} className="historyItem" onClick={() => openHistory(item)}>
+                <Clock size={15} />
+                <span>{item.question}</span>
+              </button>
+            ))
+          )}
         </aside>
       )}
 
@@ -105,7 +122,7 @@ function App() {
             <button className="iconBtn" onClick={() => setShowHistory(true)}>
               <Clock size={18} />
             </button>
-            <button className="newBtn">
+            <button className="newBtn" onClick={startNewChat}>
               <Plus size={17} />
               New chat
             </button>
@@ -113,12 +130,9 @@ function App() {
 
           <div className="titleBlock">
             <h1>Enterprise Engineering AI Assistant</h1>
-            <p>Grounded answers with enterprise citations</p>
           </div>
 
-          <button className="iconBtn" onClick={() => setShowSources(!showSources)}>
-            <PanelRight size={18} />
-          </button>
+          <div></div>
         </header>
 
         <section className="conversation">
@@ -134,21 +148,6 @@ function App() {
                     <button onClick={() => copyText(m.text)}><Copy size={14} /></button>
                     <button><ThumbsUp size={14} /></button>
                     <button><ThumbsDown size={14} /></button>
-                  </div>
-                )}
-
-                {m.role === "assistant" && m.citations?.length > 0 && (
-                  <div className="citationRow">
-                    {m.citations.slice(0, 3).map((c, i) => (
-                      <button
-                        key={i}
-                        className="citationChip"
-                        onClick={() => setActiveSources(m.citations)}
-                      >
-                        <FileText size={13} />
-                        {c.document || "Source"}
-                      </button>
-                    ))}
                   </div>
                 )}
               </div>
@@ -181,33 +180,8 @@ function App() {
               <Send size={18} />
             </button>
           </div>
-          <div className="hint">AI-generated content may be incorrect. Verify important information.</div>
         </div>
       </main>
-
-      {showSources && (
-        <aside className="sourcesPanel">
-          <div className="sourcesHeader">
-            <FileText size={18} />
-            <h2>Sources</h2>
-          </div>
-
-          {activeSources.length === 0 ? (
-            <p className="empty">Sources will appear here after a grounded response.</p>
-          ) : (
-            <div className="sourceList">
-              {activeSources.map((s, i) => (
-                <div className="sourceCard" key={i}>
-                  <div className="sourceLabel">Source {i + 1}</div>
-                  <h3>{s.document || "Unknown document"}</h3>
-                  <p>{s.section || "Engineering Standards"}</p>
-                  {s.relevance_score && <small>Relevance: {s.relevance_score}</small>}
-                </div>
-              ))}
-            </div>
-          )}
-        </aside>
-      )}
     </div>
   );
 }
