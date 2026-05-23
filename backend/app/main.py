@@ -1,46 +1,29 @@
-# Enterprise RAG backend that retrieves engineering standards from Azure AI Search using Managed Identity and generates grounded, citation-backed responses with Azure OpenAI.
+# Enterprise RAG backend using Azure AI Search + Azure OpenAI with Managed Identity, deduplicated citations, and response metadata.
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import logging
+import uuid
 
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 from azure.search.documents import SearchClient
 from openai import AzureOpenAI
 
-# =========================
-# APP + LOGGING
-# =========================
-
 app = FastAPI(
     title="Enterprise Engineering AI Assistant",
-    description="Enterprise-grade RAG AI assistant powered by Azure AI Search and Azure OpenAI with grounded enterprise citations.",
-    version="3.0.0"
+    description="Production-grade RAG assistant with grounded answers, deduplicated citations, and audit-ready metadata.",
+    version="4.1.0"
 )
 
 logging.basicConfig(level=logging.INFO)
 
-# =========================
-# CONFIG
-# =========================
-
 SEARCH_ENDPOINT = "https://srch-eng-std-chatbot-dev.search.windows.net"
 INDEX_NAME = "rag-1779537879070"
-
 AZURE_OPENAI_ENDPOINT = "https://ranbir-9548-resource.openai.azure.com"
 CHAT_MODEL = "gpt-4.1-mini"
-
 TOP_K = 5
 
-# =========================
-# AUTH (Managed Identity)
-# =========================
-
 credential = DefaultAzureCredential()
-
-# =========================
-# AI SEARCH CLIENT
-# =========================
 
 search_client = SearchClient(
     endpoint=SEARCH_ENDPOINT,
@@ -48,18 +31,10 @@ search_client = SearchClient(
     credential=credential
 )
 
-# =========================
-# OPENAI TOKEN PROVIDER
-# =========================
-
 token_provider = get_bearer_token_provider(
     credential,
     "https://cognitiveservices.azure.com/.default"
 )
-
-# =========================
-# OPENAI CLIENT
-# =========================
 
 openai_client = AzureOpenAI(
     api_version="2024-05-01-preview",
@@ -67,43 +42,23 @@ openai_client = AzureOpenAI(
     azure_ad_token_provider=token_provider
 )
 
-# =========================
-# REQUEST MODEL
-# =========================
-
 class ChatRequest(BaseModel):
     question: str
 
-# =========================
-# HEALTH CHECK
-# =========================
-
 @app.get("/")
 def root():
-    return {
-        "message": "Enterprise Engineering AI Assistant API is running"
-    }
+    return {"message": "Enterprise Engineering AI Assistant API is running"}
 
 @app.get("/api/health")
 def health():
-    return {
-        "status": "healthy"
-    }
-
-# =========================
-# CHAT ENDPOINT
-# =========================
+    return {"status": "healthy"}
 
 @app.post("/api/chat")
 def chat(req: ChatRequest):
+    request_id = str(uuid.uuid4())
 
     try:
-
-        logging.info(f"Incoming question: {req.question}")
-
-        # =========================
-        # 1. RETRIEVE DOCUMENTS (RAG)
-        # =========================
+        logging.info(f"request_id={request_id} | Incoming question: {req.question}")
 
         results = search_client.search(
             search_text=req.question,
@@ -112,121 +67,106 @@ def chat(req: ChatRequest):
 
         context = ""
         citations = []
+        seen_sources = set()
 
         for i, r in enumerate(results):
-
             chunk = r.get("chunk")
-            title = r.get("title") or "Unknown Document"
-
-            # Optional future enterprise metadata
-            section = r.get("section") or "General"
-            page = r.get("page_number") or "N/A"
+            title = r.get("title") or "EWT Engineering Standards"
+            section = r.get("section") or "Engineering Standards"
+            score = r.get("@search.score")
 
             if chunk:
-
                 context += f"""
+[Source]
 Document: {title}
 Section: {section}
-Page: {page}
+Relevance Score: {score}
 
 Content:
 {chunk}
 
-==================================================
+---
 """
 
-                citations.append({
-                    "document": title,
-                    "section": section,
-                    "page": page
-                })
+                source_key = f"{title}|{section}"
 
-        # =========================
-        # 2. NO CONTEXT SAFETY
-        # =========================
+                if source_key not in seen_sources:
+                    seen_sources.add(source_key)
+                    citations.append({
+                        "document": title,
+                        "section": section,
+                        "relevance_score": round(score, 3) if score else None
+                    })
 
         if not context:
-
             return {
+                "request_id": request_id,
+                "question": req.question,
                 "answer": "I could not find this information in the engineering standards knowledge base.",
-                "citations": []
+                "citations": [],
+                "metadata": {
+                    "model": CHAT_MODEL,
+                    "search_index": INDEX_NAME,
+                    "top_k": TOP_K
+                }
             }
-
-        # =========================
-        # 3. ENTERPRISE SYSTEM PROMPT
-        # =========================
 
         system_prompt = f"""
 You are an Enterprise Engineering AI Assistant.
 
-Your responsibility is to answer engineering governance, GitHub standards,
-Azure DevOps, infrastructure, security, and enterprise architecture questions.
-
 STRICT RULES:
-- Answer ONLY from the provided context
-- NEVER hallucinate
-- NEVER invent standards or policies
-- If information is missing, say:
-  'I could not find this information in the engineering standards knowledge base.'
+- Answer ONLY from the provided context.
+- Do NOT hallucinate.
+- Do NOT use external knowledge.
+- If the answer is not found, say:
+  "I could not find this information in the engineering standards knowledge base."
 
-RESPONSE RULES:
-- Keep responses concise
-- Keep responses enterprise-professional
-- Use bullet points when appropriate
-- Use technically accurate terminology
-- Use audit-friendly wording
+STYLE:
+- Professional
+- Concise
+- Clear for engineering, audit, governance, and DevOps teams
+- Use bullet points when helpful
 
 CITATION RULES:
-- ALWAYS include citations
-- NEVER use:
-  (Source 1), (Source 2)
-
-- ALWAYS use enterprise citations like:
-  [Document: EWT GitHub Standards | Section: Branch Protection | Page: 12]
-
-- Only cite documents actually present in the provided context
+- Use clean enterprise citations only.
+- Format citations like:
+  [Document: <document> | Section: <section>]
+- Do NOT expose chunk IDs, hashes, blob paths, or internal IDs.
+- Do NOT use vague references like Source 1, Source 2, or Sources 1-5.
+- Do NOT mention page numbers unless page metadata is explicitly available.
+- Cite only documents present in the provided context.
 
 CONTEXT:
 {context}
 """
 
-        # =========================
-        # 4. GPT CALL
-        # =========================
-
         response = openai_client.chat.completions.create(
             model=CHAT_MODEL,
             messages=[
-                {
-                    "role": "system",
-                    "content": system_prompt
-                },
-                {
-                    "role": "user",
-                    "content": req.question
-                }
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": req.question}
             ],
-            temperature=0.2,
-            max_tokens=1200
+            temperature=0.1,
+            max_tokens=1000
         )
 
         answer = response.choices[0].message.content
 
-        # =========================
-        # 5. FINAL RESPONSE
-        # =========================
-
         return {
+            "request_id": request_id,
             "question": req.question,
             "answer": answer,
-            "citations": citations
+            "citations": citations,
+            "metadata": {
+                "model": CHAT_MODEL,
+                "search_index": INDEX_NAME,
+                "top_k": TOP_K
+            }
         }
 
     except Exception as e:
-
-        logging.error(f"Error while processing request: {str(e)}")
-
+        logging.error(f"request_id={request_id} | Error: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail="Internal Server Error while processing request"
+            detail="Internal Server Error"
         )
