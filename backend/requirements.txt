@@ -2,4 +2,8 @@ fastapi
 uvicorn[standard]
 azure-identity
 azure-search-documents
+redis
+redis-entraid
+azure-identity
 openai
+aiohttp
