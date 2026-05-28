@@ -11,7 +11,6 @@ This solution enables developers, architects, and DevOps engineers to query inte
 It follows a **Retrieval-Augmented Generation (RAG)** pattern, where relevant enterprise content is first retrieved from a knowledge base and then used by an AI model to generate grounded responses with citations.
 
 ---
-
 ## Key Features
 
 - Web-based AI assistant interface.
