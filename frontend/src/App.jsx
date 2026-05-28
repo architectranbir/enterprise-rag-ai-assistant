@@ -12,7 +12,7 @@ function App() {
   const bottomRef = useRef(null);
 
   const prompts = [
-    { icon: <GitBranch size={20} />, text: "What is the EWT single-main-branch standard?" },
+    { icon: <GitBranch size={20} />, text: "What is the enterprise single-main-branch standard?" },
     { icon: <ShieldCheck size={20} />, text: "What are the branch protection requirements?" },
     { icon: <KeyRound size={20} />, text: "How should secrets be managed in Terraform repositories?" }
   ];

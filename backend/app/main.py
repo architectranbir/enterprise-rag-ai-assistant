@@ -293,7 +293,7 @@ async def chat(req: ChatRequest):
 
             chunk = r.get("chunk")
 
-            title = r.get("title") or "EWT Engineering Standards"
+            title = r.get("title") or "Enterprise Engineering Standards"
 
             section = r.get("section") or "Engineering Standards"
 
